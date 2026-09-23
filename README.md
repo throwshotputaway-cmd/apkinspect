@@ -33,6 +33,7 @@ Requires Python 3.9+. Per-command extras: `dpt` needs `androguard`,
 | `splitkey`  | split-array AES keys from `dexdump -d` output (`const/16` + `aput-byte`) |
 | `elforacle` | indexed XOR string tables in protector `.so` files (x86_64) |
 | `icici-ctr` | mid-counter AES-CTR assets (counter in block bytes 8–11, not stock CTR) |
+| `sbi`       | SBI-line assets: AES-GCM unshell → LCG un-permute/nibble/keystream → HKDF-GCM |
 | `dpt`       | statically unpack dpt-shell APKs (restores hollowed method bodies) |
 | `axml-trim` | rebuild APK with filler-trimmed `AndroidManifest.xml` (fixes jadx/apktool) |
 

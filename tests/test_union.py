@@ -92,7 +92,7 @@ class UnionTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         for cmd in ('lcg', 'upd', 'shard', 'spk', 'staged', 'fogky',
                     'signed', 'oracle', 'splitkey', 'elforacle',
-                    'icici-ctr', 'dpt', 'axml-trim'):
+                    'icici-ctr', 'dpt', 'sbi', 'axml-trim'):
             self.assertIn(cmd, r.stdout)
 
 

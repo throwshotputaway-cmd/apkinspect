@@ -6,9 +6,9 @@ import sys
 from . import __version__
 from .common import ToolError
 from . import axml, dpt, elforacle, fogky, icici_ctr, lcg
-from . import oracle, shard, signed, spk, splitkey, staged, upd
+from . import oracle, sbi, shard, signed, spk, splitkey, staged, upd
 
-MODULES = (axml, dpt, elforacle, fogky, icici_ctr, lcg, oracle,
+MODULES = (axml, dpt, elforacle, fogky, icici_ctr, lcg, oracle, sbi,
            shard, signed, spk, splitkey, staged, upd)
 
 
