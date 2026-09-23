@@ -78,9 +78,8 @@ of tracebacks on foreign inputs).
 
 ## Notes
 
-- No samples, keys beyond builder defaults, or victim data are included.
-- Builder defaults (XOR keys, seeds, passwords) are per-family constants
-  recovered from disassembly; override them per sample via CLI flags.
-- `dpt` handles the standard and size-first-XOR-`0x6f` `OoooooOooo`
-  variants and resolves bytecode sections to DEX files by exact
+- Defaults (XOR keys, seeds, passwords) are per-family constants; override
+  them per sample via CLI flags.
+- `dpt` handles both `OoooooOooo` variants (standard and size-first
+  XOR-`0x6f`) and maps bytecode sections to DEX files by exact
   code-capacity fit.
