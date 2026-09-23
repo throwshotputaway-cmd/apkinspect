@@ -1,0 +1,4 @@
+cryptography>=41
+androguard>=4.1   # dpt
+lief>=0.14        # elforacle
+capstone>=5       # elforacle
