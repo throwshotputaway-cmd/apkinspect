@@ -5,3 +5,5 @@ __pycache__/
 unpacked/
 *.apk
 *.dex
+
+tests/

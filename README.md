@@ -69,19 +69,12 @@ python -m apkinspect fogky carrier.apk assets/blob -o out.bin --key $(xxd -p key
 python -m apkinspect elforacle lib/arm64-v8a/libfoo.so -o strings.txt
 ```
 
-## Effectiveness check
+## Verifying
 
-`tests/test_carrier.py` exercises the CLI against an `update.enc`-line
-carrier (not shipped here — set `APKINSPECT_TEST_APK` or pass `--apk`),
-and `tests/test_cloak.py` covers the multi-layer asset command:
-
-```bash
-python -m unittest discover -s tests
-```
-
-Expected: `upd` recovers a valid inner ZIP; the line-specific commands
-(`signed`, `midctr`, `dpt`, `oracle`, `lcg`) exit non-zero with clean
-one-line errors instead of tracebacks.
+Point the CLI at a carrier from a matching builder line and check the
+output (`upd` on an `update.enc` carrier should yield a valid inner ZIP;
+line-specific commands exit non-zero with clean one-line errors instead
+of tracebacks on foreign inputs).
 
 ## Notes
 
