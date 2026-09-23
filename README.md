@@ -32,8 +32,8 @@ Requires Python 3.9+. Per-command extras: `dpt` needs `androguard`,
 | `oracle`    | decode numeric string-oracle (`const-wide` seed) call sites in a DEX |
 | `splitkey`  | split-array AES keys from `dexdump -d` output (`const/16` + `aput-byte`) |
 | `elforacle` | indexed XOR string tables in protector `.so` files (x86_64) |
-| `icici-ctr` | mid-counter AES-CTR assets (counter in block bytes 8–11, not stock CTR) |
-| `sbi`       | SBI-line assets: AES-GCM unshell → LCG un-permute/nibble/keystream → HKDF-GCM |
+| `midctr`    | mid-counter AES-CTR assets (counter in block bytes 8–11, not stock CTR) |
+| `cloak`     | multi-layer assets: AES-GCM unshell → LCG un-permute/nibble/keystream → HKDF-GCM |
 | `dpt`       | statically unpack dpt-shell APKs (restores hollowed method bodies) |
 | `axml-trim` | rebuild APK with filler-trimmed `AndroidManifest.xml` (fixes jadx/apktool) |
 
@@ -53,9 +53,9 @@ python -m apkinspect lcg blob.dat -o payload.apk --seed 0x4394D --header 16
 # dpt-shell: restore hollowed methods, fixed DEX headers to unpacked/
 python -m apkinspect dpt packed.apk -o unpacked/
 
-# ICICI line: key straight from the native lib's .data section
-python -m apkinspect icici-ctr carrier.apk -o inner.apk \
-    --so libhhcbcu.so --key-off 0x17440 --const 0x6b71def9b8938f83
+# native-loader line: key straight from the bundled .so's .data section
+python -m apkinspect midctr carrier.apk -o inner.apk \
+    --so libloader.so --key-off 0x17440 --const 0x6b71def9b8938f83
 
 # numeric string oracle in a DEX
 python -m apkinspect oracle classes.dex --method q2sx0mC159653E9dHg -o strings.txt
@@ -71,16 +71,16 @@ python -m apkinspect elforacle lib/arm64-v8a/libfoo.so -o strings.txt
 
 ## Effectiveness check
 
-`tests/test_union.py` exercises the CLI against `union.apk`, an
-`update.enc`-line carrier (not shipped here — set `APKINSPECT_TEST_APK`
-or pass `--apk`):
+`tests/test_carrier.py` exercises the CLI against an `update.enc`-line
+carrier (not shipped here — set `APKINSPECT_TEST_APK` or pass `--apk`),
+and `tests/test_cloak.py` covers the multi-layer asset command:
 
 ```bash
 python -m unittest discover -s tests
 ```
 
 Expected: `upd` recovers a valid inner ZIP; the line-specific commands
-(`signed`, `icici-ctr`, `dpt`, `oracle`, `lcg`) exit non-zero with clean
+(`signed`, `midctr`, `dpt`, `oracle`, `lcg`) exit non-zero with clean
 one-line errors instead of tracebacks.
 
 ## Notes

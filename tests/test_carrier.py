@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Effectiveness checks for apkinspect, using union.apk as the test carrier.
+"""Effectiveness checks for apkinspect, using an update.enc-line carrier.
 
-union.apk is an update.enc-line sample (assets/update.enc XOR-encrypted,
+The carrier is an update.enc-line sample (assets/update.enc XOR-encrypted,
 key in libpayload.so rodata). It is NOT part of this repo - point
---apk at your local copy (default: C:/projects/apks/union.apk).
+--apk at your local copy.
 
 Run:  python -m unittest discover -s tests
-      python tests/test_union.py [--apk PATH]
+      python tests/test_carrier.py [--apk PATH]
 """
 import argparse
 import os
@@ -24,7 +24,7 @@ def run_cli(*argv):
     return subprocess.run(CLI + list(argv), capture_output=True, text=True)
 
 
-class UnionTests(unittest.TestCase):
+class CarrierTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not os.path.exists(APK):
@@ -47,14 +47,14 @@ class UnionTests(unittest.TestCase):
             self.assertGreater(len(z.namelist()), 0)
 
     def test_signed_fails_gracefully(self):
-        """union.apk has no signed-line assets: clean error, no traceback."""
+        """Carrier has no signed-line assets: clean error, no traceback."""
         r = run_cli('signed', APK, '--outdir', self.out('s'))
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('not found', r.stderr)
         self.assertNotIn('Traceback', r.stderr)
 
-    def test_icici_ctr_fails_gracefully(self):
-        r = run_cli('icici-ctr', APK, '-o', self.out('x.apk'),
+    def test_midctr_fails_gracefully(self):
+        r = run_cli('midctr', APK, '-o', self.out('x.apk'),
                     '--key', 'f5090d29cc4f11df7bca1e813d68600f')
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('not found', r.stderr)
@@ -77,7 +77,7 @@ class UnionTests(unittest.TestCase):
                         or 'does not start with PK' in r.stderr, r.stderr)
 
     def test_oracle_method_absent(self):
-        """union.apk is not an oracle-line sample: clean error."""
+        """Carrier is not an oracle-line sample: clean error."""
         dex = os.path.join(self.tmp.name, 'classes.dex')
         with zipfile.ZipFile(APK) as z:
             with open(dex, 'wb') as fh:
@@ -92,7 +92,7 @@ class UnionTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         for cmd in ('lcg', 'upd', 'shard', 'spk', 'staged', 'fogky',
                     'signed', 'oracle', 'splitkey', 'elforacle',
-                    'icici-ctr', 'dpt', 'sbi', 'axml-trim'):
+                    'midctr', 'dpt', 'cloak', 'axml-trim'):
             self.assertIn(cmd, r.stdout)
 
 

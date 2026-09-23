@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Decryptor for the SBI credit-card dropper line (ixrxty/vvcym/cgifamily).
+"""Multi-layer asset decryptor for the GCM/LCG dropper line.
 
-Each asset is wrapped in the same onion (recovered from cgiyd disassembly):
+Each asset is wrapped in the same onion (recovered from loader
+disassembly):
 
 1. unshell:  AES-GCM, key = SHA-256(blob[0:32] + xb(tag)),
              nonce = blob[32:44], AAD = xb(tag)
@@ -179,7 +180,7 @@ def parse_kind(s: str) -> bytes:
 
 
 def register(sub):
-    p = sub.add_parser('sbi', help='decrypt SBI-line GCM/LCG assets')
+    p = sub.add_parser('cloak', help='decrypt GCM/LCG-wrapped assets')
     p.add_argument('apk', help='carrier APK')
     p.add_argument('-o', '--output', required=True)
     p.add_argument('--asset', default='assets/nvcgehin')

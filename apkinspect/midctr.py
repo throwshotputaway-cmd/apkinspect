@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""AES-CTR payload decryptor for the ICICI/dropper native-loader line.
+"""AES-CTR payload decryptor for the native-loader dropper line.
 
-The native loop (libhhcbcu.so oP7cJ) builds each 16-byte counter block as:
+The native loop (oP7cJ in the bundled .so) builds each 16-byte counter block as:
   bytes 0-7 : 8-byte constant (LE of the inline immediate)
   bytes 8-11: block number (byte_index >> 4) as 28-bit LE
   bytes 12-15: zero
@@ -40,7 +40,7 @@ def key_from_so(path: str, offset: int) -> bytes:
 
 
 def register(sub):
-    p = sub.add_parser('icici-ctr', help='decrypt mid-counter AES-CTR assets')
+    p = sub.add_parser('midctr', help='decrypt mid-counter AES-CTR assets')
     p.add_argument('apk', help='carrier APK')
     p.add_argument('-o', '--output', required=True)
     p.add_argument('--asset', default='assets/nvcgehin')
