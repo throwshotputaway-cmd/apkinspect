@@ -26,6 +26,16 @@ MAX_PARTS = 64
 MAX_REPORTED_ERROR = 240
 _ATTEMPT_TOKEN = '__APKINSPECT_ATTEMPT_DIR__'
 
+KNOWN_VARIANTS = {
+    'upd': (('default', upd.DEFAULT_KEY.decode('ascii')),),
+    'staged': (('default', staged.DEFAULT_PASSWORD),),
+    'signed': (('default', signed.DEFAULT_XOR64.decode('ascii')),),
+    'spk': (('default', spk.DEFAULT_KEY.decode('ascii')),),
+    'fogky': (('default', fogky.DEFAULT_KEY.hex()),),
+    'shard': (('default', shard.DEFAULT_KEY.decode('ascii')),),
+    'cloak': (('hk+pk-default', ''),),
+}
+
 
 def _nonnegative(value: str) -> int:
     parsed = int(value, 0)
@@ -44,7 +54,17 @@ def _positive(value: str) -> int:
 def _safe_error(error: Exception) -> str:
     message = ' '.join(str(error).split())
     message = re.sub(r'(?i)\b[0-9a-f]{24,}\b', '<redacted>', message)
+    message = re.sub(r"assets/[^\s'\"]+", 'assets/<redacted>', message)
     return message[:MAX_REPORTED_ERROR] or type(error).__name__
+
+
+def _safe_asset(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    if len(value) <= 80:
+        return value
+    digest = hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
+    return '%s...<sha256:%s>' % (value[:32], digest)
 
 
 def _safe_member_name(name: str) -> str:
@@ -83,8 +103,6 @@ def _archive_info(path: str) -> Dict[str, zipfile.ZipInfo]:
                 mode = (info.external_attr >> 16) & 0o170000
                 if stat.S_ISLNK(mode):
                     raise ToolError('archive contains a symbolic link')
-                if info.flag_bits & 0x1:
-                    raise ToolError('encrypted archive members are not supported')
                 if info.file_size > MAX_ENTRY_BYTES:
                     raise ToolError('archive member exceeds the size limit')
                 if info.compress_size and info.file_size > max(
@@ -237,7 +255,7 @@ class BlindRunner:
         self.queue: Deque[Tuple[str, int]] = deque()
         self.queued: Set[str] = set()
         self.processed: Set[str] = set()
-        self.attempted: Set[Tuple[str, str, str]] = set()
+        self.attempted: Set[Tuple[str, str, str, str]] = set()
         self.attempts: List[Dict[str, Any]] = []
         self.attempt_count = 0
         self.artifact_count = 0
@@ -288,8 +306,8 @@ class BlindRunner:
             return False
 
     def _try(self, name: str, module: Any, depth: int, input_digest: str,
-             asset: str, argv: List[str]) -> bool:
-        marker = (name, input_digest, asset)
+             asset: str, argv: List[str], variant: str = 'default') -> bool:
+        marker = (name, input_digest, asset, variant)
         if marker in self.attempted:
             return False
         self.attempted.add(marker)
@@ -313,7 +331,8 @@ class BlindRunner:
                 result = 1
                 error = _safe_error(collection_error)
         self._record(name, depth, 'success' if result == 0 else 'failed',
-                     input_sha256=input_digest, asset=asset or None,
+                     input_sha256=input_digest, asset=_safe_asset(asset),
+                     variant=variant,
                      outputs=[os.path.relpath(path, self.outdir) for path in outputs],
                      error=error or None)
         if result != 0:
@@ -326,6 +345,14 @@ class BlindRunner:
                 self._queue_nested(output, depth)
                 if depth < self.max_depth:
                     self._queue(output, depth + 1)
+        return False
+
+    def _try_variants(self, name: str, module: Any, depth: int,
+                      input_digest: str, asset: str, argv_builder: Any) -> bool:
+        for variant, value in KNOWN_VARIANTS.get(name, (('default', ''),)):
+            if self._try(name, module, depth, input_digest, asset,
+                         argv_builder(value), variant=variant):
+                return True
         return False
 
     def _finish(self, source: str, depth: int) -> None:
@@ -344,40 +371,48 @@ class BlindRunner:
                 'axml-trim', axml, depth, digest, '',
                 ['axml-trim', path, '-o', self._attempt_output('axml.apk')]):
             return
-        if 'assets/update.enc' in names and self._try(
+        if 'assets/update.enc' in names and self._try_variants(
                 'upd', upd, depth, digest, 'assets/update.enc',
-                ['upd', path, '-o', self._attempt_output('upd.payload')]):
+                lambda key: ['upd', path, '-o', self._attempt_output('upd.payload'),
+                             '--key', key]):
             return
-        if 'assets/packed/meta.json' in names and self._staged_safe(path) and self._try(
+        if 'assets/packed/meta.json' in names and self._staged_safe(path) and self._try_variants(
                 'staged', staged, depth, digest, 'assets/packed/meta.json',
-                ['staged', path, '-o', self._attempt_output('staged.payload')]):
+                lambda password: ['staged', path,
+                                  '-o', self._attempt_output('staged.payload'),
+                                  '--password', password]):
             return
-        if {'assets/0uym5nunf4giud61', 'assets/bvxg8rspej6aqybh/u0w4uogp'} <= names and self._try(
+        if {'assets/0uym5nunf4giud61', 'assets/bvxg8rspej6aqybh/u0w4uogp'} <= names and self._try_variants(
                 'signed', signed, depth, digest, 'signed-family',
-                ['signed', path, '--outdir', self._attempt_output('signed')]):
+                lambda key: ['signed', path, '--outdir', self._attempt_output('signed'),
+                             '--xor-key', key]):
             return
-        if 'assets/nvcgehin' in names and self._try(
+        if 'assets/nvcgehin' in names and self._try_variants(
                 'cloak', cloak, depth, digest, 'assets/nvcgehin',
-                ['cloak', path, '-o', self._attempt_output('cloak.payload')]):
+                lambda key: ['cloak', path, '-o', self._attempt_output('cloak.payload')]):
             return
         binary_assets = sorted(
             (name for name in names if name.startswith('assets/') and name.endswith('.bin')),
             key=lambda name: (-infos[name].file_size, name))
-        if binary_assets and self._try(
+        if binary_assets and self._try_variants(
                 'spk', spk, depth, digest, binary_assets[0],
-                ['spk', path, '-o', self._attempt_output('spk.body'),
-                 '--asset', binary_assets[0]]):
+                lambda key: ['spk', path, '-o', self._attempt_output('spk.body'),
+                             '--asset', binary_assets[0], '--key', key]):
             return
         for asset in _candidate_assets(infos, self.max_assets):
-            if self._try(
+            if self._try_variants(
                     'fogky', fogky, depth, digest, asset,
-                    ['fogky', path, asset,
-                     '-o', self._attempt_output('fogky-%d' % len(asset))]):
+                    lambda key, asset=asset: [
+                        'fogky', path, asset,
+                        '-o', self._attempt_output('fogky-%d' % len(asset)),
+                        '--key', key]):
                 return
-            if self._try(
+            if self._try_variants(
                     'shard', shard, depth, digest, asset,
-                    ['shard', path, asset,
-                     '-o', self._attempt_output('shard-%d' % len(asset))]):
+                    lambda key, asset=asset: [
+                        'shard', path, asset,
+                        '-o', self._attempt_output('shard-%d' % len(asset)),
+                        '--key', key]):
                 return
             if asset.lower().endswith('.dat'):
                 try:

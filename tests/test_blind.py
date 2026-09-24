@@ -6,6 +6,7 @@ import os
 import struct
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from apkinspect import blind
@@ -90,6 +91,37 @@ class BlindTests(unittest.TestCase):
                 result = blind.run(args)
             self.assertEqual(result, 0)
             self.assertTrue(os.path.isfile(os.path.join(output, 'final.apk')))
+
+    def test_encrypted_member_is_left_for_adapters(self):
+        class Info:
+            filename = 'assets/protected.bin'
+            external_attr = 0
+            flag_bits = 1
+            file_size = 1
+            compress_size = 1
+
+        class Archive:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def infolist(self):
+                return [Info()]
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, 'carrier.zip')
+            with open(path, 'wb') as stream:
+                stream.write(b'PK')
+            with mock.patch('apkinspect.blind.zipfile.ZipFile', return_value=Archive()):
+                infos = blind._archive_info(path)
+        self.assertIn('assets/protected.bin', infos)
+
+    def test_known_variant_matrix_is_present(self):
+        for command in ('upd', 'staged', 'signed', 'spk', 'fogky', 'shard', 'cloak'):
+            self.assertIn(command, blind.KNOWN_VARIANTS)
+            self.assertTrue(blind.KNOWN_VARIANTS[command])
 
     def test_blind_alias_is_normalized(self):
         self.assertEqual(normalize_argv(['--blind', 'sample.apk']),

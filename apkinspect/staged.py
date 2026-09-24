@@ -19,12 +19,14 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from .common import ToolError, pkcs7_unpad, read_asset, report_plain, write_file
 from .ui import ui_for
 
+DEFAULT_PASSWORD = '0oP#4mKl1X3'
+
 
 def register(sub):
     p = sub.add_parser('staged', help='reassemble meta.json-driven staged payloads')
     p.add_argument('apk', help='carrier APK')
     p.add_argument('-o', '--output', required=True)
-    p.add_argument('--password', default='0oP#4mKl1X3',
+    p.add_argument('--password', default=DEFAULT_PASSWORD,
                    help='password baked into the loader (try builder defaults first)')
     p.add_argument('--asset-dir', default='assets/packed')
     p.add_argument('--meta', default='meta.json')

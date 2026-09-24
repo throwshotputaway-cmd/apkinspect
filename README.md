@@ -187,10 +187,10 @@ entry integrity; it does not validate an Android manifest or APK signatures.
 
 ### `blind`
 
-Runs a bounded, static discovery pipeline over an APK. It tries compatible
-keyless family transforms, follows valid ZIP/APK artifacts recursively, and
-stops when it finds a structurally complete APK. It never runs, installs, or
-emulates the sample.
+Runs a bounded, static discovery pipeline over an APK. It sweeps the
+repository's known family keys/passwords across compatible transforms, follows
+valid ZIP/APK artifacts recursively, and stops when it finds a structurally
+complete APK. It never runs, installs, or emulates the sample.
 
 ```text
 apkinspect blind APK -o blind-output [options]
@@ -206,10 +206,12 @@ apkinspect --blind APK -o blind-output
 | `--max-assets` | `16` | Maximum ranked assets tried per decryptor |
 
 The pipeline first checks whether the input is already complete. It then tries
-manifest repair and keyless family adapters such as `upd`, `staged`, `signed`,
+manifest repair and the known family adapters such as `upd`, `staged`, `signed`,
 `cloak`, `spk`, `fogky`, `shard`, `lcg`, and `dpt` when their expected assets
-exist. Successful ZIP outputs and nested `.apk` members are queued for further
-analysis, with digest-based cycle detection and the configured limits.
+exist. Encrypted archive members are skipped individually, so readable payload
+assets can still be tested. Successful ZIP outputs and nested `.apk` members
+are queued for further analysis, with digest-based cycle detection and the
+configured limits.
 
 A result is accepted as final only when the ZIP passes integrity checks, the
 root binary `AndroidManifest.xml` parses, and `classes.dex` has a coherent DEX
