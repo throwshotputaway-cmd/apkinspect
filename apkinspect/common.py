@@ -9,6 +9,9 @@ import zipfile
 import zlib
 
 
+MAX_ASSET_BYTES = 256 * 1024 * 1024
+
+
 class ToolError(Exception):
     """Fatal, user-facing tool failure (mapped to a non-zero exit code)."""
 
@@ -52,16 +55,23 @@ def read_key(key: str, key_file: str, name: str = 'key', lengths=None) -> bytes:
     return parse_hex(key, name, lengths)
 
 
-def read_asset(apk_path: str, asset: str) -> bytes:
+def read_asset(apk_path: str, asset: str,
+               max_bytes: int = MAX_ASSET_BYTES) -> bytes:
     """Read an asset from a carrier APK, with clean errors."""
     try:
         with zipfile.ZipFile(os.fspath(apk_path)) as archive:
             try:
-                return archive.read(asset)
+                info = archive.getinfo(asset)
             except KeyError:
                 raise ToolError(
                     "asset '%s' not found in %s (this carrier is not from "
                     "the matching builder line?)" % (asset, apk_path))
+            if info.file_size > max_bytes:
+                raise ToolError("asset '%s' exceeds the %d-byte limit" % (asset, max_bytes))
+            data = archive.read(asset)
+            if len(data) > max_bytes:
+                raise ToolError("asset '%s' exceeds the %d-byte limit" % (asset, max_bytes))
+            return data
     except ToolError:
         raise
     except (OSError, RuntimeError, EOFError, zipfile.BadZipFile, zlib.error) as e:

@@ -159,12 +159,14 @@ Successful commands return exit code `0`. Invalid or foreign input returns
 Output files are written atomically. ZIP verification checks ZIP structure and
 entry integrity; it does not validate an Android manifest or APK signatures.
 `--expect dex` checks the DEX magic, while `auto` recognizes ZIP or DEX output.
+Direct archive asset reads are capped at 256 MiB per member before decompression.
 
 ## Command index
 
 | Command | Purpose |
 |---|---|
 | `blind` | Try compatible static unpackers and follow payloads to a final APK |
+| `profiles` | List built-in adapter metadata for discovery and automation |
 | `lcg` | Decrypt an LCG stream-cipher `.dat` blob |
 | `upd` | Decrypt an `update.enc` repeating-XOR carrier |
 | `shard` | Decrypt a repeating-XOR staged asset |
@@ -217,12 +219,28 @@ A result is accepted as final only when the ZIP passes integrity checks, the
 root binary `AndroidManifest.xml` parses, and `classes.dex` has a coherent DEX
 header. Signatures and Android installation validity are not verified. The
 result is written to `<outdir>/final.apk`; every attempt and skip reason is
-written to `<outdir>/report.json`.
+written to `<outdir>/report.json`, together with the built-in profile metadata
+used for the run.
 
 Commands requiring sample-specific keys or offsets (`aes-gcm-hkdf`,
 `chunked-aes-gzip`, `xor-gzip`, and `midctr`) are reported as skipped rather
 than brute-forced. `blind` returns `0` when it finds a final APK and `1` when
 the bounded search finds none.
+
+### `profiles`
+
+Lists the built-in adapter metadata used by bounded discovery. The output is
+plain text by default and can be consumed by automation as JSON:
+
+```text
+apkinspect profiles
+apkinspect profiles --json
+```
+
+Each profile records its command module, trigger type, default asset or required
+assets, command template, and whether it is safe for keyless `blind` discovery.
+The same metadata is embedded in `blind-output/report.json` so a result can be
+audited without reading the implementation.
 
 ### `lcg`
 

@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 import os
 import struct
 import tempfile
@@ -9,7 +10,7 @@ import zlib
 
 from apkinspect import fogky
 from apkinspect.__main__ import build_parser, main
-from apkinspect.common import ToolError, pkcs7_unpad, safe_basename, safe_output_path, verify_zip, write_file
+from apkinspect.common import ToolError, pkcs7_unpad, read_asset, safe_basename, safe_output_path, verify_zip, write_file
 
 
 class CommonTests(unittest.TestCase):
@@ -18,6 +19,15 @@ class CommonTests(unittest.TestCase):
         with zipfile.ZipFile(buffer, 'w'):
             pass
         self.assertEqual(verify_zip(buffer.getvalue()), 0)
+
+    def test_read_asset_rejects_oversized_asset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = os.path.join(directory, 'carrier.apk')
+            with zipfile.ZipFile(apk, 'w') as archive:
+                archive.writestr('assets/payload.bin', b'abc')
+            self.assertEqual(read_asset(apk, 'assets/payload.bin', max_bytes=3), b'abc')
+            with self.assertRaisesRegex(ToolError, 'exceeds the 2-byte limit'):
+                read_asset(apk, 'assets/payload.bin', max_bytes=2)
 
     def test_safe_output_path_rejects_traversal(self):
         with self.assertRaises(ToolError):
@@ -64,6 +74,16 @@ class CliTests(unittest.TestCase):
             'elforacle', 'library.so', '-o', 'strings.txt', '--func', 'nativeOracle'])
         self.assertEqual(args.symbol, 'nativeOracle')
         self.assertTrue(callable(args.func))
+
+    def test_profiles_json_lists_builtin_metadata(self):
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            result = main(['profiles', '--json'])
+        self.assertEqual(result, 0)
+        profiles = json.loads(stdout.getvalue())
+        names = {profile['name'] for profile in profiles}
+        self.assertIn('fogky', names)
+        self.assertIn('aes-gcm-hkdf', names)
 
     def test_missing_file_is_clean_error(self):
         stderr = io.StringIO()

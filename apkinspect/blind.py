@@ -15,6 +15,7 @@ from typing import Any, Deque, Dict, List, Optional, Sequence, Set, Tuple
 
 from . import axml, cloak, dpt, fogky, lcg, shard, signed, spk, staged, upd
 from .common import ToolError, read_file, write_file
+from .profiles import BUILTIN_PROFILES, profile_report
 from .ui import UI
 
 MAX_INPUT_BYTES = 512 * 1024 * 1024
@@ -446,8 +447,9 @@ class BlindRunner:
         if os.path.getsize(self.input_path) > MAX_INPUT_BYTES:
             raise ToolError('input APK exceeds the size limit')
         self._record('blind', 0, 'started', input=self.input_path)
-        for command in ('aes-gcm-hkdf', 'chunked-aes-gzip', 'xor-gzip', 'midctr'):
-            self._record(command, 0, 'skipped', reason='requires sample-specific key material')
+        for profile in BUILTIN_PROFILES:
+            if not profile.blind_compatible:
+                self._record(profile.name, 0, 'skipped', reason=profile.description)
         if is_final_apk(self.input_path):
             self._finish(self.input_path, 0)
         else:
@@ -484,6 +486,7 @@ class BlindRunner:
         report = {
             'input': self.input_path,
             'final': self.final_path,
+            'profiles': profile_report(),
             'limits': {
                 'max_depth': self.max_depth,
                 'max_attempts': self.max_attempts,
