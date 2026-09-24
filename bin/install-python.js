@@ -17,7 +17,7 @@ function run(command, args) {
 const system = findPython();
 if (!system) {
   console.error(
-    'apkinspect: Python 3.9 or newer is required. Install Python and rerun npm install.',
+    'apkinspect: Python 3.9 or newer is required. Install Python and run apkinspect again.',
   );
   process.exit(1);
 }

@@ -21,8 +21,5 @@
     "pyproject.toml",
     "README.md",
     "requirements.txt"
-  ],
-  "scripts": {
-    "postinstall": "node bin/install-python.js"
-  }
+  ]
 }

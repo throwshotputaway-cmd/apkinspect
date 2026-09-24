@@ -7,8 +7,8 @@ signing.
 
 The project is usable in two ways:
 
-- `npm install -g apkinspect` for a one-command installation that exposes
-  the `apkinspect` command.
+- `npm install -g github:throwshotputaway-cmd/apkinspect` for a direct
+  repository installation that exposes the `apkinspect` command.
 - `python -m pip install .` when Python packaging is preferred.
 
 Both paths install the complete runtime command set. There are no optional
@@ -28,13 +28,16 @@ Python interpreter, so Python must already be installed and discoverable.
 
 ## Install with npm
 
-After publishing the package, install it globally:
+Install directly from the repository:
 
 ```bash
-npm install --global apkinspect
+npm install --global github:throwshotputaway-cmd/apkinspect
 apkinspect --help
 apkinspect --version
 ```
+
+This installs the repository directly and exposes the same command as a local
+checkout installation.
 
 From a checkout of this repository, the equivalent local installation is:
 
@@ -50,39 +53,31 @@ npm install
 npx apkinspect --help
 ```
 
-The npm package creates an isolated Python environment inside the installed
-package and installs `apkinspect` plus all runtime dependencies there. The
-`apkinspect` launcher then uses that environment, so a normal npm install
-does not modify the user's global Python environment.
+The launcher creates an isolated Python environment inside the installed
+package on first use and installs `apkinspect` plus all runtime dependencies
+there. It does not modify the user's global Python environment.
 
 If the Python executable is not on `PATH`, set `APKINSPECT_PYTHON` before
-running npm. For example, in PowerShell:
+running `apkinspect`. For example, in PowerShell:
 
 ```powershell
 $env:APKINSPECT_PYTHON = 'C:\Python312\python.exe'
-npm install --global .
+apkinspect --help
 ```
 
 On macOS and Linux, use the equivalent environment variable:
 
 ```bash
-APKINSPECT_PYTHON=/path/to/python3 npm install --global .
+APKINSPECT_PYTHON=/path/to/python3 apkinspect --help
 ```
 
 `APKINSPECT_VENV` can be set when a different private environment directory is
 needed. The default is `.apkinspect-venv` inside the installed npm package.
 
-If npm scripts were disabled or a package policy blocked the postinstall,
-run the installer explicitly:
-
-```bash
-npm rebuild --global apkinspect --foreground-scripts
-```
-
-The launcher also checks for its private environment on first use and runs
-the same bootstrap automatically, so `npx apkinspect` remains usable when
-lifecycle scripts are unavailable. npm versions that display an install-script
-approval notice may still show that notice even when the bootstrap succeeds.
+The launcher checks for its private environment on first use and runs the
+Python bootstrap automatically. There is no npm lifecycle hook, so installing
+directly from GitHub does not require npm script-policy exceptions. The first
+`apkinspect` command may take longer while Python dependencies are installed.
 
 ## Install with Python
 
@@ -611,12 +606,12 @@ python -m mypy
 python -m build
 ```
 
-Validate the npm package without running its Python bootstrap:
+Validate the npm package:
 
 ```bash
-npm install --ignore-scripts
+npm install
 npm pack --dry-run
 ```
 
-To exercise the complete npm install path, use a disposable environment with
-Python and network access so the postinstall can create its private venv.
+To exercise the complete first-run path, use a disposable environment with
+Python and network access, then run `apkinspect --version` after installation.
