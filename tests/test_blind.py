@@ -66,6 +66,7 @@ class BlindTests(unittest.TestCase):
             with open(os.path.join(output, 'report.json'), encoding='utf-8') as stream:
                 report = json.load(stream)
             self.assertEqual(report['final'], os.path.join(output, 'final.apk'))
+            self.assertTrue(any(profile['name'] == 'fogky' for profile in report['profiles']))
 
     def test_nested_apk_is_followed(self):
         with tempfile.TemporaryDirectory() as directory:

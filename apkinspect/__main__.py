@@ -8,10 +8,10 @@ from . import __version__
 from .common import ToolError
 from .ui import UI
 from . import axml, blind, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr
-from . import oracle, shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip
+from . import oracle, profiles, shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip
 
 MODULES = (axml, blind, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr, oracle,
-           shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip)
+           profiles, shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip)
 
 
 def add_ui_options(parser, suppress: bool = False) -> None:
