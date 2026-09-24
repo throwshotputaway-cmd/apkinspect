@@ -6,9 +6,8 @@ Scheme: skip HEADER bytes, then per byte
     out   = in ^ ((state >> 24) & 0xFF)
 (validated against InstallHelper.writeAssetToFile disassembly)
 """
-import argparse
 
-from .common import ToolError, report_plain, verify_zip, warn, write_file
+from .common import ToolError, read_file, report_plain, verify_zip, warn, write_file
 
 A = 0x0019660D  # 1664525 (Numerical Recipes LCG)
 C = 0x3C6EF35F  # 1013904223
@@ -16,6 +15,8 @@ MASK = 0xFFFFFFFF
 
 
 def decrypt(data: bytes, seed: int = 0x4394D, header: int = 16) -> bytes:
+    if header < 0 or header > len(data):
+        raise ToolError('header must be between 0 and input size')
     enc = data[header:]
     state = seed
     out = bytearray(len(enc))
@@ -41,8 +42,7 @@ def register(sub):
 
 
 def run(args) -> int:
-    with open(args.input, 'rb') as fh:
-        data = fh.read()
+    data = read_file(args.input)
     if not looks_like_lcg_blob(data):
         warn('no 16-zero-byte header; trying anyway')
     pt = decrypt(data, args.seed, args.header)

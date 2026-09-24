@@ -5,10 +5,8 @@ Scheme: out[i] = in[i] ^ key[i % len(key)] with the builder key taken from
 the libpayload.so rodata (getSecretKey return). Same key across all observed
 samples - try it first on any new update.enc carrier before deeper RE.
 """
-import argparse
 
-from .common import ToolError, report_plain, verify_zip, write_file
-from .common import read_asset
+from .common import ToolError, read_asset, report_plain, verify_zip, write_file
 
 DEFAULT_KEY = b'PayloadSecure2026_ProtectionKey'
 
@@ -25,6 +23,8 @@ def register(sub):
 
 def run(args) -> int:
     key = args.key.encode() if args.key else DEFAULT_KEY
+    if not key:
+        raise ToolError('key must not be empty')
     data = read_asset(args.apk, args.asset)
     pt = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
     if not args.no_verify:

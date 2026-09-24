@@ -9,15 +9,18 @@ and keystream = AES-128-ECB(key, counter_block). Standard AES; the only
 quirk is the counter living in the MIDDLE of the block (byte 8 first),
 so stock CTR tooling decrypts block 0 correctly and garbage afterwards.
 """
-import argparse
 import struct
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from .common import ToolError, read_asset, report_plain, verify_zip, write_file
+from .common import ToolError, read_asset, read_file, report_plain, verify_zip, write_file
 
 
 def decrypt_blob(ct: bytes, key: bytes, const8: bytes) -> bytes:
+    if len(key) != 16:
+        raise ToolError('AES key must be 16 bytes')
+    if len(const8) != 8:
+        raise ToolError('counter constant must be 8 bytes')
     enc = Cipher(algorithms.AES(key), modes.ECB()).encryptor()
     out = bytearray(len(ct))
     for blk in range((len(ct) + 15) // 16):
@@ -31,9 +34,10 @@ def decrypt_blob(ct: bytes, key: bytes, const8: bytes) -> bytes:
 
 
 def key_from_so(path: str, offset: int) -> bytes:
-    with open(path, 'rb') as fh:
-        fh.seek(offset)
-        key = fh.read(16)
+    raw = read_file(path, 'ELF file')
+    if offset < 0:
+        raise ToolError('key offset must not be negative')
+    key = raw[offset:offset + 16]
     if len(key) != 16:
         raise ToolError('could not read 16-byte key at %#x of %s' % (offset, path))
     return key
@@ -57,9 +61,20 @@ def register(sub):
 
 
 def run(args) -> int:
-    key = bytes.fromhex(args.key) if args.key else key_from_so(args.so, args.key_off)
-    const8 = struct.pack('<Q', args.const)
-    print('key=%s const8=%s' % (key.hex(), const8.hex()))
+    if args.key:
+        try:
+            key = bytes.fromhex(args.key)
+        except ValueError:
+            raise ToolError('--key must be hex')
+    else:
+        key = key_from_so(args.so, args.key_off)
+    if len(key) != 16:
+        raise ToolError('--key must decode to 16 bytes')
+    try:
+        const8 = struct.pack('<Q', args.const)
+    except struct.error:
+        raise ToolError('--const must fit in an unsigned 64-bit value')
+    print('const8=%s' % const8.hex())
     ct = read_asset(args.apk, args.asset)
     pt = decrypt_blob(ct, key, const8)
     if not args.no_verify:

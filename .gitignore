@@ -1,9 +1,11 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+build/
+dist/
+*.whl
+.pytest_cache/
 .venv/
 unpacked/
 *.apk
 *.dex
-
-tests/

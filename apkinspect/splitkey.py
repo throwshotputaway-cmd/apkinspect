@@ -5,10 +5,10 @@ Targets the protector pattern where a key-builder method constructs two
 byte arrays from scattered immediate constants (const/16 + aput-byte) and
 returns array1[i] ^ array2[i]. Per-build keys are the norm - re-run per sample.
 """
-import argparse
 import re
+from typing import List, Optional, cast
 
-from .common import ToolError
+from .common import ToolError, read_file, write_file
 
 
 def register(sub):
@@ -24,11 +24,16 @@ def register(sub):
 
 
 def run(args) -> int:
-    with open(args.dump, encoding='utf-8', errors='ignore') as fh:
-        lines = fh.read().splitlines()
+    if args.size < 1:
+        raise ToolError('size must be positive')
     try:
-        start = next(i for i, l in enumerate(lines)
-                     if 'Class descriptor' in l and args.cls in l)
+        text = read_file(args.dump, 'dexdump file').decode('utf-8', errors='ignore')
+    except UnicodeDecodeError:
+        raise ToolError('dexdump file is not valid UTF-8')
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines)
+                     if 'Class descriptor' in line and args.cls in line)
     except StopIteration:
         raise ToolError("class '%s' not found in dump" % args.cls)
     try:
@@ -38,8 +43,8 @@ def run(args) -> int:
         end = len(lines)
     seg = lines[start:end]
     try:
-        d0 = next(i for i, l in enumerate(seg)
-                  if l.strip() == "name          : '%s'" % args.method)
+        d0 = next(i for i, line in enumerate(seg)
+                  if line.strip() == "name          : '%s'" % args.method)
     except StopIteration:
         raise ToolError("method '%s' not found in class '%s'"
                         % (args.method, args.cls))
@@ -48,26 +53,40 @@ def run(args) -> int:
         j += 1
     body = seg[d0:j]
 
-    a1, a2 = [0] * args.size, [0] * args.size
+    a1: List[Optional[int]] = [None] * args.size
+    a2: List[Optional[int]] = [None] * args.size
     cur = {}
-    for l in body:
-        m = re.search(r'const/(?:16|4) v(\d+), #int (-?\d+)', l)
-        if m:
-            cur[int(m.group(1))] = int(m.group(2)) & 0xFF
+    for line in body:
+        match = re.search(r'const/(?:16|4) v(\d+), #int (-?\d+)', line)
+        if match:
+            cur[int(match.group(1))] = int(match.group(2)) & 0xFF
             continue
-        m = re.search(r'aput-byte v(\d+), v(\d+), v(\d+)', l)
-        if m:
-            v, arr, idx = int(m.group(1)), int(m.group(2)), int(m.group(3))
-            # NOTE: straight-line code assumed; verify the method has no
-            # branches between const and aput if output looks wrong
-            if arr == 1:
-                a1[cur.get(idx, 0)] = cur.get(v, 0)
-            elif arr == 2:
-                a2[cur.get(idx, 0)] = cur.get(v, 0)
-    key = bytes(x ^ y for x, y in zip(a1, a2))
+        match = re.search(r'aput-byte v(\d+), v(\d+), v(\d+)', line)
+        if match:
+            value_reg, array_reg, index_reg = (int(match.group(i)) for i in (1, 2, 3))
+            if value_reg not in cur or index_reg not in cur:
+                raise ToolError('splitkey could not resolve a register value')
+            index = cur[index_reg]
+            if not 0 <= index < args.size:
+                raise ToolError('splitkey index out of range: %d' % index)
+            value = cur[value_reg]
+            if array_reg == 1:
+                a1[index] = value
+            elif array_reg == 2:
+                a2[index] = value
+    a1_bytes = bytearray(args.size)
+    a2_bytes = bytearray(args.size)
+    for position, entry in enumerate(a1):
+        if entry is None:
+            raise ToolError('splitkey did not find a complete key')
+        a1_bytes[position] = cast(int, entry)
+    for position, entry in enumerate(a2):
+        if entry is None:
+            raise ToolError('splitkey did not find a complete key')
+        a2_bytes[position] = cast(int, entry)
+    key = bytes(x ^ y for x, y in zip(a1_bytes, a2_bytes))
     print('AES key: %s' % key.hex())
     if args.output:
-        with open(args.output, 'wb') as fh:
-            fh.write(key)
+        write_file(args.output, key)
         print('written to %s' % args.output)
     return 0

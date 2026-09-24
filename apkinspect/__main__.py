@@ -2,36 +2,68 @@
 """apkinspect - static decryptors and unpackers for packed Android APKs."""
 import argparse
 import sys
+import time
 
 from . import __version__
 from .common import ToolError
-from . import axml, dpt, elforacle, fogky, midctr, lcg
-from . import oracle, cloak, shard, signed, spk, splitkey, staged, upd
+from .ui import UI
+from . import axml, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr
+from . import oracle, shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip
 
-MODULES = (axml, dpt, elforacle, fogky, midctr, lcg, oracle, cloak,
-           shard, signed, spk, splitkey, staged, upd)
+MODULES = (axml, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr, oracle,
+           shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip)
+
+
+def add_ui_options(parser, suppress: bool = False) -> None:
+    default = argparse.SUPPRESS if suppress else False
+    parser.add_argument('--no-color', action='store_true', default=default,
+                        help='disable ANSI colors')
+    parser.add_argument('-q', '--quiet', action='store_true', default=default,
+                        help='suppress status and progress output')
+    progress_default = argparse.SUPPRESS if suppress else 'auto'
+    parser.add_argument('--progress', choices=('auto', 'always', 'never'),
+                        default=progress_default,
+                        help='progress display mode')
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog='apkinspect',
+        description='Static decryptors/unpackers for packed Android APKs.')
+    parser.add_argument('--version', action='version', version=__version__)
+    add_ui_options(parser)
+    sub = parser.add_subparsers(dest='command', metavar='<command>')
+    for module in MODULES:
+        module.register(sub)
+    for command_parser in sub.choices.values():
+        add_ui_options(command_parser, suppress=True)
+    return parser
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(
-        prog='apkinspect',
-        description='Static decryptors/unpackers for packed Android APKs.')
-    ap.add_argument('--version', action='version', version=__version__)
-    sub = ap.add_subparsers(dest='command', metavar='<command>')
-    for mod in MODULES:
-        mod.register(sub)
-    args = ap.parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if not getattr(args, 'command', None):
-        ap.print_help()
+        parser.print_help()
         return 2
+    ui = UI(quiet=args.quiet, color=not args.no_color, progress=args.progress)
+    args.ui = ui
+    started = time.monotonic()
+    ui.command_start(args.command)
     try:
-        return args.func(args)
+        result = args.func(args)
     except ToolError as e:
-        print('ERROR: %s' % e, file=sys.stderr)
+        ui.error(str(e))
         return 1
     except KeyboardInterrupt:
-        print('interrupted', file=sys.stderr)
+        ui.interrupted()
         return 130
+    except Exception as e:
+        ui.error(str(e))
+        return 1
+    if result == 0:
+        ui.command_done(args.command, time.monotonic() - started)
+    return result
 
 
 if __name__ == '__main__':

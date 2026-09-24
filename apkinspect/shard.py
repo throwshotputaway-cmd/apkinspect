@@ -5,7 +5,6 @@ Scheme: out[i] = in[i] ^ key[(i + offset) % len(key)], usually offset 0.
 The halves password is builder-wide, not per-build - try it first on any
 new sharded sample before deeper RE.
 """
-import argparse
 
 from .common import ToolError, read_asset, report_plain, verify_zip, write_file
 
@@ -27,6 +26,10 @@ def register(sub):
 
 def run(args) -> int:
     key = args.key.encode() if args.key else DEFAULT_KEY
+    if not key:
+        raise ToolError('key must not be empty')
+    if args.offset < 0:
+        raise ToolError('offset must not be negative')
     data = read_asset(args.apk, args.asset)
     pt = bytes(b ^ key[(i + args.offset) % len(key)] for i, b in enumerate(data))
     if not args.no_verify:

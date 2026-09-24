@@ -12,15 +12,12 @@ unionization + small ones) do NOT open under this scheme; they are
 consumed by stage-2 code behind the numeric string oracle
 (see `oracle`) - dynamic or deeper RE required.
 """
-import argparse
 import hashlib
-import io
 import os
-import zipfile
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from .common import ToolError, read_asset, write_file
+from .common import ToolError, pkcs7_unpad, read_asset, verify_zip, write_file
 
 DEFAULT_XOR64 = b'hgwsldiyf7oxls3fm5dxmvrfpcaimougsvrxujztomip20cinmhna1cnghwxcdgc'
 DEFAULT_STAGE1 = 'assets/0uym5nunf4giud61'
@@ -41,6 +38,8 @@ def register(sub):
 def run(args) -> int:
     os.makedirs(args.outdir, exist_ok=True)
     xor64 = args.xor_key.encode() if args.xor_key else DEFAULT_XOR64
+    if not xor64:
+        raise ToolError('XOR key must not be empty')
     enc = read_asset(args.apk, args.stage1)
     dex = bytes(b ^ xor64[i % len(xor64)] for i, b in enumerate(enc))
     if not dex.startswith(b'dex\n'):
@@ -50,19 +49,19 @@ def run(args) -> int:
     print('stage1.dex OK (%d bytes) -> %s' % (len(dex), p1))
 
     enc2 = read_asset(args.apk, args.stage2)
-    base = args.stage2.rsplit('/', 1)[-1].encode()
+    base = args.stage2.replace('\\', '/').rsplit('/', 1)[-1].encode()
     key = hashlib.sha1(base).digest()[:16]
-    dec = Cipher(algorithms.AES(key), modes.CBC(b'\x00' * 16)).decryptor()
-    pt = dec.update(enc2) + dec.finalize()
-    pad = pt[-1]
-    if pad < 1 or pad > 16:
-        raise ToolError('stage-2 bad PKCS5 padding (wrong asset?)')
-    pt = pt[:-pad]
     try:
-        with zipfile.ZipFile(io.BytesIO(pt)) as zz:
-            print('stage2.zip entries: %s' % zz.namelist())
+        dec = Cipher(algorithms.AES(key), modes.CBC(b'\x00' * 16)).decryptor()
+        pt = dec.update(enc2) + dec.finalize()
     except Exception as e:
-        raise ToolError('stage-2 output is not a ZIP: %s' % e)
+        raise ToolError('stage-2 AES-CBC failed: %s' % e)
+    try:
+        pt = pkcs7_unpad(pt)
+    except ToolError as e:
+        raise ToolError('stage-2 %s' % e)
+    n = verify_zip(pt, 'stage-2 output')
+    print('stage2.zip entries: %d' % n)
     p2 = os.path.join(args.outdir, 'stage2.zip')
     write_file(p2, pt)
     print('stage2.zip OK (%d bytes) -> %s' % (len(pt), p2))

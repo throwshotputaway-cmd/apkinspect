@@ -1,85 +1,133 @@
 # apkinspect
 
-Static decryptors and unpackers for packed / trojanized Android APKs, as a
-single CLI. Each subcommand targets one builder/packer line observed in the
-wild (XOR droppers, AES staged payloads, string oracles, dpt-shell, …).
-
-```
-python -m apkinspect <command> [options]
-```
+Static decryptors and unpackers for packed Android APKs, exposed as one
+installable Python CLI. Each subcommand targets a builder or packer line
+observed in the wild.
 
 ## Install
 
+For the core CLI:
+
 ```bash
-pip install -r requirements.txt
+python -m pip install -e .
 ```
 
-Requires Python 3.9+. Per-command extras: `dpt` needs `androguard`,
-`elforacle` needs `lief` + `capstone`; everything else needs only
-`cryptography` (AES) plus the standard library.
+Install optional command dependencies when needed:
+
+```bash
+python -m pip install -e ".[dpt]"
+python -m pip install -e ".[elf]"
+python -m pip install -e ".[ui]"
+python -m pip install -e ".[all]"
+```
+
+The legacy dependency file installs the project with all optional commands:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Python 3.9 or newer is required. The core package needs `cryptography`.
+`dpt` needs `androguard`; `elforacle` needs `lief` and `capstone`.
+`rich` enables the polished terminal UI; without it, the CLI uses a plain
+TTY fallback.
+
+## Usage
+
+```text
+apkinspect <command> [options]
+python -m apkinspect <command> [options]
+apkinspect --version
+apkinspect --help
+apkinspect --no-color <command> [options]
+apkinspect --quiet <command> [options]
+apkinspect --progress always <command> [options]
+```
+
+Status and progress output go to stderr, so stdout remains usable for
+command results. Use `--progress never` for fully quiet automation.
 
 ## Commands
 
-| command     | what it does |
-|-------------|--------------|
-| `lcg`       | LCG stream-cipher `.dat` dropper payloads (`SEED`/`--header` tunable) |
-| `upd`       | repeating-XOR `update.enc` carriers (builder key default) |
-| `shard`     | repeating-XOR single-blob staged `.raw` assets (`--offset` for chains) |
-| `spk`       | SPK-line `.bin` blobs: XOR outer layer + `SPKZ`/DEFLATE inner layer |
-| `staged`    | `meta.json`-driven multi-part AES-CBC payloads, hash-verified, gunzipped |
-| `fogky`     | XOR-pad → RC4 (x4 KSA) → AES-GCM blobs |
-| `signed`    | two-stage dictionary-name assets (XOR DEX loader, then AES-CBC asset ZIP) |
-| `oracle`    | decode numeric string-oracle (`const-wide` seed) call sites in a DEX |
-| `splitkey`  | split-array AES keys from `dexdump -d` output (`const/16` + `aput-byte`) |
-| `elforacle` | indexed XOR string tables in protector `.so` files (x86_64) |
-| `midctr`    | mid-counter AES-CTR assets (counter in block bytes 8–11, not stock CTR) |
-| `cloak`     | multi-layer assets: AES-GCM unshell → LCG un-permute/nibble/keystream → HKDF-GCM |
-| `dpt`       | statically unpack dpt-shell APKs (restores hollowed method bodies) |
-| `axml-trim` | rebuild APK with filler-trimmed `AndroidManifest.xml` (fixes jadx/apktool) |
+| command | purpose |
+|---|---|
+| `lcg` | LCG stream-cipher `.dat` dropper payloads |
+| `upd` | repeating-XOR `assets/update.enc` carriers |
+| `shard` | repeating-XOR single-blob `.raw` assets |
+| `spk` | SPK-line `.bin` blobs with XOR and DEFLATE layers |
+| `staged` | hash-verified, `meta.json`-driven AES-CBC payloads |
+| `fogky` | XOR-pad, RC4x4 and AES-GCM blobs; extracts `MSZ1`/`MSP1` split sets |
+| `signed` | two-stage dictionary-name assets |
+| `oracle` | numeric DEX string-oracle call sites |
+| `splitkey` | split-array AES keys from `dexdump -d` output |
+| `elforacle` | indexed XOR string tables in x86_64 `.so` files |
+| `midctr` | nonstandard mid-counter AES-CTR assets |
+| `cloak` | multi-layer AES-GCM, LCG and HKDF-GCM assets |
+| `aes-gcm-hkdf` | direct AES-GCM/HKDF loader assets |
+| `chunked-aes-gzip` | numbered chunk, SHA-256-XOR, AES-CBC and gzip assets |
+| `xor-gzip` | repeating-XOR plus gzip assets |
+| `dpt` | static dpt-shell method restoration |
+| `axml-trim` | rebuild an APK with a filler-trimmed binary manifest |
 
-Every command fails with a one-line `ERROR: …` (exit 1) instead of a
-traceback when the input is from a different builder line, and verifies
-output (ZIP test / magic / GCM tag) by default (`--no-verify` to skip).
+Commands emit concise errors for invalid input and return non-zero status
+without a traceback. Output files are written atomically. Archive-derived
+output names are checked before extraction, and empty ZIPs are accepted as
+valid ZIP containers.
+
+`--no-verify` is available on `lcg`, `upd`, `shard` and `midctr` when the
+caller intentionally wants to inspect a non-ZIP intermediate result.
 
 ## Examples
 
 ```bash
-# update.enc line: XOR-decrypt and verify the inner ZIP
-python -m apkinspect upd carrier.apk -o payload.apk
-
-# LCG .dat dropper with a non-default seed
-python -m apkinspect lcg blob.dat -o payload.apk --seed 0x4394D --header 16
-
-# dpt-shell: restore hollowed methods, fixed DEX headers to unpacked/
-python -m apkinspect dpt packed.apk -o unpacked/
-
-# native-loader line: key straight from the bundled .so's .data section
-python -m apkinspect midctr carrier.apk -o inner.apk \
-    --so libloader.so --key-off 0x17440 --const 0x6b71def9b8938f83
-
-# numeric string oracle in a DEX
-python -m apkinspect oracle classes.dex --method q2sx0mC159653E9dHg -o strings.txt
-
-# split-array key from dexdump output, then fogky blob with that key
-dexdump -d classes.dex > dump.txt
-python -m apkinspect splitkey dump.txt --class MainActivity --method abm4 -o key.bin
-python -m apkinspect fogky carrier.apk assets/blob -o out.bin --key $(xxd -p key.bin | tr -d '\n')
-
-# native string table from a protector .so (x86_64)
-python -m apkinspect elforacle lib/arm64-v8a/libfoo.so -o strings.txt
+apkinspect upd carrier.apk -o payload.apk
+apkinspect lcg blob.dat -o payload.apk --seed 0x4394D --header 16
+apkinspect dpt packed.apk -o unpacked/
+apkinspect fogky carrier.apk assets/blob -o out.bin --key 00112233445566778899aabbccddeeff
+apkinspect fogky carrier.apk assets/dnshz4t -o split_set --key 00112233445566778899aabbccddeeff
+apkinspect oracle classes.dex --method q2sx0mC159653E9dHg -o strings.txt
+apkinspect splitkey dump.txt --class MainActivity --method abm4 -o key.bin
+apkinspect elforacle lib/x86_64/libfoo.so -o strings.txt
+apkinspect axml-trim carrier.apk -o trimmed.apk
+apkinspect aes-gcm-hkdf carrier.apk assets/payload -o stage2.dex --hk-file aes-gcm.key
+apkinspect chunked-aes-gzip carrier.apk -o payload.apk --key-file chunks.key --count 10
+apkinspect xor-gzip payload.apk assets/payload -o payload.dex --key-file xor.key
 ```
 
-## Verifying
+Use an installed `apkinspect` command after installation. The equivalent
+`python -m apkinspect` form is useful from a source checkout.
 
-Point the CLI at a carrier from a matching builder line and check the
-output (`upd` on an `update.enc` carrier should yield a valid inner ZIP;
-line-specific commands exit non-zero with clean one-line errors instead
-of tracebacks on foreign inputs).
+## Research notes
 
-## Notes
+- `dexdump` is an external Android SDK tool required by `splitkey`.
+- `aes-gcm-hkdf`, `chunked-aes-gzip` and `xor-gzip` require a per-sample key;
+  use `--key-file` or `--hk-file` instead of putting recovered keys in shell
+  history or logs.
+- These three commands are static transforms and do not require an Android
+  runtime.
+- `elforacle` currently targets the x86_64 ELF64 little-endian slice.
+- `axml-trim` creates a new ZIP and does not preserve APK v2/v3 signing
+  blocks; resign the output before installing it on a device.
+- `dpt` writes restored `classes*.dex` files and does not rebuild a signed
+  APK.
+- Default keys, seeds and passwords are family constants. Override them per
+  sample with the command-specific options and treat extracted material as
+  sensitive.
+- Do not test with other people's accounts. Use Meta or carrier-provided test
+  accounts when the program requires them.
 
-- Defaults (XOR keys, seeds, passwords) are per-family constants; override
-  them per sample via CLI flags.
-- `dpt` handles both `OoooooOooo` variants (standard and size-first
-  XOR-`0x6f`) and maps bytecode sections to DEX files by exact
-  code-capacity fit.
+## Development
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q apkinspect tests
+python -m ruff check .
+python -m mypy
+python -m pip install -e ".[all,dev]"
+python -m build
+```
+
+The integration tests use local APK fixtures and skip when their configured
+fixture is absent. Override the defaults with `APKINSPECT_TEST_APK`,
+`APKINSPECT_TEST_CLOAK_APK` and `APKINSPECT_FOGKY_APK` when running against a
+different sample set.

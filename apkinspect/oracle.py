@@ -11,10 +11,9 @@ Two DEX string-table bugs this avoids (learned the hard way):
 - string_data_item length is a UTF-16 char count, not a byte count: strings
   must be read up to the NUL terminator, not by length prefix
 """
-import argparse
 import struct
 
-from .common import ToolError, warn
+from .common import ToolError, read_file, warn, write_file
 
 M = (1 << 64) - 1
 
@@ -100,36 +99,57 @@ def wZFA(seed, blob):
 
 
 def read_uleb(d, o):
-    r = 0
-    s = 0
+    value = 0
+    shift = 0
     while True:
-        b = d[o]
+        if o >= len(d) or shift > 63:
+            raise ToolError('DEX uleb128 value is truncated')
+        byte = d[o]
         o += 1
-        r |= (b & 0x7f) << s
-        s += 7
-        if not b & 0x80:
-            return r, o
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if not byte & 0x80:
+            return value, o
 
 
 def get_strings(dex):
-    ns, off = struct.unpack('<II', dex[56:64])
-    so = struct.unpack('<%dI' % ns, dex[off:off + 4 * ns])
+    if len(dex) < 64:
+        raise ToolError('DEX header is truncated')
+    string_ids_size, string_ids_off = struct.unpack('<II', dex[56:64])
+    table_end = string_ids_off + string_ids_size * 4
+    if string_ids_size > len(dex) // 4 or table_end > len(dex):
+        raise ToolError('DEX string table is out of bounds')
+    string_offsets = struct.unpack('<%dI' % string_ids_size,
+                                   dex[string_ids_off:table_end])
     out = []
-    for a in so:
-        _, p = read_uleb(dex, a)
-        e = dex.index(b'\x00', p)
-        out.append(dex[p:e].decode('utf-8', errors='replace'))
+    for offset in string_offsets:
+        _, start = read_uleb(dex, offset)
+        try:
+            end = dex.index(b'\x00', start)
+        except ValueError:
+            raise ToolError('DEX string is not NUL terminated')
+        try:
+            out.append(dex[start:end].decode('utf-8'))
+        except UnicodeDecodeError:
+            out.append(dex[start:end].decode('utf-8', errors='replace'))
     return out
 
 
 def find_oracle_idx(dex, strings, method_name):
-    nm = struct.unpack('<I', dex[88:92])[0]
-    moff = struct.unpack('<I', dex[92:96])[0]
+    if len(dex) < 96:
+        raise ToolError('DEX method table is truncated')
+    method_count = struct.unpack('<I', dex[88:92])[0]
+    method_off = struct.unpack('<I', dex[92:96])[0]
+    if method_off + 8 * method_count > len(dex):
+        raise ToolError('DEX method table is out of bounds')
     hits = []
-    for i in range(nm):
-        _, _, name = struct.unpack('<HHI', dex[moff + 8 * i:moff + 8 * i + 8])
-        if strings[name] == method_name:
-            hits.append(i)
+    for index in range(method_count):
+        _, _, name_index = struct.unpack('<HHI', dex[method_off + 8 * index:
+                                                        method_off + 8 * index + 8])
+        if name_index >= len(strings):
+            raise ToolError('DEX method name index is out of bounds')
+        if strings[name_index] == method_name:
+            hits.append(index)
     return hits
 
 
@@ -142,18 +162,16 @@ def scan_seeds(dex, oracle_idx):
     seeds = []
     seen = set()
     mv = memoryview(dex)
-    for o in range(0, len(dex) - 10, 2):
-        if mv[o] != 0x19:
+    for offset in range(0, max(0, len(dex) - 25), 2):
+        if mv[offset] != 0x19:
             continue
-        seed = struct.unpack('<Q', dex[o + 2:o + 10])[0]
+        seed = struct.unpack('<Q', dex[offset + 2:offset + 10])[0]
         if seed in seen:
             continue
-        # look ahead for invoke-static to the oracle (format 35c: op=0x71,
-        # AA|count, then method_idx u16 in the next unit)
-        units = struct.unpack('<13H', dex[o:o + 26])
+        units = struct.unpack('<13H', dex[offset:offset + 26])
         ok = False
-        for k in range(5, 12):
-            if (units[k] & 0xFF) == 0x71 and units[k + 1] == oracle_idx:
+        for index in range(5, 12):
+            if (units[index] & 0xFF) == 0x71 and units[index + 1] == oracle_idx:
                 ok = True
                 break
         if ok:
@@ -181,11 +199,12 @@ def register(sub):
 
 
 def run(args) -> int:
-    with open(args.dex, 'rb') as fh:
-        dex = fh.read()
+    dex = read_file(args.dex, 'DEX file')
     if dex[:4] != b'dex\n':
         raise ToolError('not a DEX file: %s' % args.dex)
     strings = get_strings(dex)
+    if not strings:
+        raise ToolError('DEX contains no strings')
     blob = max(strings, key=len)
     print('strings=%d blob_chars=%d' % (len(strings), len(blob)))
     hits = find_oracle_idx(dex, strings, args.method)
@@ -207,7 +226,6 @@ def run(args) -> int:
     for ln in lines:
         print(ln)
     if args.output:
-        with open(args.output, 'w', encoding='utf-8') as fh:
-            fh.write('\n'.join(lines) + '\n')
+        write_file(args.output, ('\n'.join(lines) + '\n').encode('utf-8'))
         print('written to %s' % args.output)
     return 0

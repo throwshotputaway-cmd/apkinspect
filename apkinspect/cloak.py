@@ -18,7 +18,6 @@ disassembly):
 (stage 3). The HK/PK hex master keys below are builder defaults -
 override per sample via --hk/--pk.
 """
-import argparse
 import hashlib
 import hmac
 import zlib
@@ -55,8 +54,16 @@ def hx(s):
 
 
 def key_from_hex(s):
-    h = hx(s)
-    return bytes(int(h[i * 2:(i + 1) * 2], 16) for i in range(len(h) // 2))
+    try:
+        h = hx(s)
+    except (TypeError, ValueError) as e:
+        raise ToolError('invalid master key: %s' % e)
+    if not h or len(h) % 2:
+        raise ToolError('master key must contain complete hex bytes')
+    try:
+        return bytes.fromhex(h)
+    except ValueError as e:
+        raise ToolError('invalid master key: %s' % e)
 
 
 def unshell(data: bytes) -> bytes:
@@ -145,10 +152,12 @@ def pull_kind(data: bytes, key_bytes: bytes, kind: bytes) -> bytes:
         raise ToolError('pull decrypted empty')
     payload = dec[1:]
     if dec[0] & 1:
-        try:
-            return zlib.decompress(payload)
-        except zlib.error:
-            return zlib.decompress(payload, -zlib.MAX_WBITS)
+        for window in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
+            try:
+                return zlib.decompress(payload, window)
+            except zlib.error:
+                continue
+        raise ToolError('compressed payload is not valid zlib or raw deflate')
     return payload
 
 
@@ -173,10 +182,13 @@ def parse_kind(s: str) -> bytes:
         return bytes([(-51 & 0xFF) ^ K])
     if s == 'P':
         return bytes([(-43 & 0xFF) ^ K])
-    v = int(s, 0)
-    if not 0 <= v <= 255:
+    try:
+        value = int(s, 0)
+    except ValueError:
+        raise ToolError('kind must be H, P, or an integer byte')
+    if not 0 <= value <= 255:
         raise ToolError('kind byte out of range: %s' % s)
-    return bytes([v])
+    return bytes([value])
 
 
 def register(sub):
@@ -208,10 +220,10 @@ def run(args) -> int:
             break
         except ToolError as e:
             errors.append(str(e))
-    if pt is None:
+    if pt is None or used is None:
         raise ToolError('no master-key/kind combo opened the asset (%s)'
                         % ' | '.join(errors[:2]))
-    print('opened with master=%s kind=%s' % used)
+    print('opened with master=%s kind=%s' % (used[0], used[1]))
     try:
         out = unwrap_pay(pt)
     except ToolError as e:
