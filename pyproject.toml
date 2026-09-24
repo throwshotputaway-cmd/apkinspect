@@ -9,7 +9,11 @@ description = "Static decryptors and unpackers for packed Android APKs"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "androguard>=4.1",
+    "capstone>=5",
     "cryptography>=41",
+    "lief>=0.14",
+    "rich>=13",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -23,26 +27,9 @@ classifiers = [
 keywords = ["android", "apk", "reverse-engineering", "security", "unpacker"]
 
 [project.optional-dependencies]
-dpt = [
-    "androguard>=4.1",
-]
-elf = [
-    "lief>=0.14",
-    "capstone>=5",
-]
-ui = [
-    "rich>=13",
-]
-all = [
-    "androguard>=4.1",
-    "lief>=0.14",
-    "capstone>=5",
-    "rich>=13",
-]
 dev = [
     "build>=1.0",
     "mypy>=1.13,<2.0",
-    "rich>=13",
     "ruff>=0.8",
 ]
 

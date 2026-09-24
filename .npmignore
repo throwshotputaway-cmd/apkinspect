@@ -3,12 +3,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
-*.whl
-.pytest_cache/
-.venv/
 .apkinspect-venv/
 node_modules/
-npm-debug.log*
-unpacked/
-*.apk
-*.dex
+tests/
+*.tgz

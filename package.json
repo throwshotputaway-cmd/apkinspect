@@ -1,0 +1,28 @@
+{
+  "name": "apkinspect",
+  "version": "0.4.0",
+  "description": "Static decryptors and unpackers for packed Android APKs",
+  "keywords": [
+    "android",
+    "apk",
+    "reverse-engineering",
+    "security",
+    "unpacker"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "apkinspect": "bin/apkinspect.js"
+  },
+  "files": [
+    "apkinspect/*.py",
+    "bin/*.js",
+    "pyproject.toml",
+    "README.md",
+    "requirements.txt"
+  ],
+  "scripts": {
+    "postinstall": "node bin/install-python.js"
+  }
+}
