@@ -3,6 +3,11 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Tuple
 
+from . import fogky, shard, signed, spk, staged, upd
+
+
+PROFILE_SCHEMA_VERSION = 1
+
 
 @dataclass(frozen=True)
 class AdapterProfile:
@@ -14,6 +19,7 @@ class AdapterProfile:
     required_assets: Tuple[str, ...] = ()
     description: str = ''
     blind_compatible: bool = True
+    variants: Tuple[Tuple[str, str], ...] = ()
 
 
 BUILTIN_PROFILES = (
@@ -27,12 +33,14 @@ BUILTIN_PROFILES = (
         ('upd', '{apk}', '-o', '{output}'),
         asset='assets/update.enc',
         description='repeating-XOR update.enc carrier',
+        variants=(('default', upd.DEFAULT_KEY.decode('ascii')),),
     ),
     AdapterProfile(
         'staged', 'staged', 'staged',
         ('staged', '{apk}', '-o', '{output}'),
         asset='assets/packed/meta.json',
         description='metadata-described AES-CBC staged payload',
+        variants=(('default', staged.DEFAULT_PASSWORD),),
     ),
     AdapterProfile(
         'signed', 'signed', 'assets',
@@ -42,27 +50,32 @@ BUILTIN_PROFILES = (
             'assets/bvxg8rspej6aqybh/u0w4uogp',
         ),
         description='two-stage signed-family payload',
+        variants=(('default', signed.DEFAULT_XOR64.decode('ascii')),),
     ),
     AdapterProfile(
         'cloak', 'cloak', 'asset',
         ('cloak', '{apk}', '-o', '{output}'),
         asset='assets/nvcgehin',
         description='layered AES-GCM/LCG/HKDF carrier',
+        variants=(('hk+pk-default', ''),),
     ),
     AdapterProfile(
         'spk', 'spk', 'binary',
         ('spk', '{apk}', '-o', '{output}', '--asset', '{asset}'),
         description='SPKZ/SPK1 repeating-XOR container',
+        variants=(('default', spk.DEFAULT_KEY.decode('ascii')),),
     ),
     AdapterProfile(
         'fogky', 'fogky', 'ranked',
         ('fogky', '{apk}', '{asset}', '-o', '{output}'),
         description='Fogky XOR/RC4/AES-GCM carrier',
+        variants=(('default', fogky.DEFAULT_KEY.hex()),),
     ),
     AdapterProfile(
         'shard', 'shard', 'ranked',
         ('shard', '{apk}', '{asset}', '-o', '{output}'),
         description='single-blob repeating-XOR shard',
+        variants=(('default', shard.DEFAULT_KEY.decode('ascii')),),
     ),
     AdapterProfile(
         'lcg', 'lcg', 'dat',
@@ -99,7 +112,19 @@ BUILTIN_PROFILES = (
 
 
 def profile_report() -> list:
-    return [asdict(profile) for profile in BUILTIN_PROFILES]
+    result = []
+    for profile in BUILTIN_PROFILES:
+        item = asdict(profile)
+        item['variants'] = [name for name, _ in profile.variants]
+        result.append(item)
+    return result
+
+
+def profile_by_name(name: str) -> AdapterProfile:
+    for profile in BUILTIN_PROFILES:
+        if profile.name == name:
+            return profile
+    raise KeyError(name)
 
 
 def register(sub):

@@ -1,7 +1,6 @@
 import argparse
 import contextlib
 import io
-import json
 import os
 import struct
 import tempfile
@@ -10,7 +9,8 @@ from unittest import mock
 import zipfile
 
 from apkinspect import blind
-from apkinspect.__main__ import normalize_argv
+from apkinspect.__main__ import build_parser, normalize_argv
+from apkinspect.profiles import profile_by_name
 
 
 def make_manifest():
@@ -45,7 +45,7 @@ class BlindTests(unittest.TestCase):
             self.assertTrue(blind.is_final_apk(complete))
             self.assertFalse(blind.is_final_apk(missing_dex))
 
-    def test_existing_final_apk_is_copied_and_reported(self):
+    def test_existing_final_apk_is_copied(self):
         with tempfile.TemporaryDirectory() as directory:
             source = os.path.join(directory, 'source.apk')
             output = os.path.join(directory, 'output')
@@ -64,10 +64,7 @@ class BlindTests(unittest.TestCase):
                 result = blind.run(args)
             self.assertEqual(result, 0)
             self.assertTrue(os.path.isfile(os.path.join(output, 'final.apk')))
-            with open(os.path.join(output, 'report.json'), encoding='utf-8') as stream:
-                report = json.load(stream)
-            self.assertEqual(report['final'], os.path.join(output, 'final.apk'))
-            self.assertTrue(any(profile['name'] == 'fogky' for profile in report['profiles']))
+            self.assertFalse(os.path.exists(os.path.join(output, 'report.json')))
 
     def test_nested_apk_is_followed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -121,8 +118,34 @@ class BlindTests(unittest.TestCase):
 
     def test_known_variant_matrix_is_present(self):
         for command in ('upd', 'staged', 'signed', 'spk', 'fogky', 'shard', 'cloak'):
-            self.assertIn(command, blind.KNOWN_VARIANTS)
-            self.assertTrue(blind.KNOWN_VARIANTS[command])
+            self.assertTrue(profile_by_name(command).variants)
+        self.assertEqual(blind.KNOWN_VARIANTS['upd'],
+                         profile_by_name('upd').variants)
+
+    def test_profile_filter_limits_discovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = os.path.join(directory, 'carrier.zip')
+            output = os.path.join(directory, 'output')
+            write_zip(source, {'assets/update.enc': b'not-a-payload'})
+            args = argparse.Namespace(
+                apk=source,
+                outdir=output,
+                max_depth=1,
+                max_attempts=4,
+                max_assets=0,
+                profiles=['fogky'],
+            )
+            with mock.patch.object(blind, '_invoke', return_value=(1, 'blocked')) as invoke:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    result = blind.run(args)
+            self.assertEqual(result, 1)
+            invoke.assert_not_called()
+            self.assertFalse(os.path.exists(os.path.join(output, 'report.json')))
+
+    def test_profile_option_is_repeatable(self):
+        args = build_parser().parse_args([
+            'blind', 'sample.apk', '--profile', 'fogky', '--profile', 'upd'])
+        self.assertEqual(args.profiles, ['fogky', 'upd'])
 
     def test_blind_alias_is_normalized(self):
         self.assertEqual(normalize_argv(['--blind', 'sample.apk']),
