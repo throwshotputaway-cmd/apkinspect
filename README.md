@@ -202,10 +202,11 @@ apkinspect --blind APK -o blind-output
 | Option | Default | Meaning |
 |---|---|---|
 | `APK` | required | Input APK or carrier ZIP |
-| `-o, --outdir` | `blind-output` | Directory for `final.apk`, artifacts, and `report.json` |
+| `-o, --outdir` | `blind-output` | Directory for `final.apk` and artifacts |
 | `--max-depth` | `4` | Maximum recursive payload depth |
 | `--max-attempts` | `64` | Maximum command attempts |
 | `--max-assets` | `16` | Maximum ranked assets tried per decryptor |
+| `--profile` | all compatible profiles | Limit discovery to one profile; repeat for multiple profiles |
 
 The pipeline first checks whether the input is already complete. It then tries
 manifest repair and the known family adapters such as `upd`, `staged`, `signed`,
@@ -213,14 +214,16 @@ manifest repair and the known family adapters such as `upd`, `staged`, `signed`,
 exist. Encrypted archive members are skipped individually, so readable payload
 assets can still be tested. Successful ZIP outputs and nested `.apk` members
 are queued for further analysis, with digest-based cycle detection and the
-configured limits.
+configured limits. Use `--profile` when a run should stay within a known
+adapter family. Run `apkinspect profiles --json` separately when the built-in
+profile metadata is needed for automation.
 
 A result is accepted as final only when the ZIP passes integrity checks, the
 root binary `AndroidManifest.xml` parses, and `classes.dex` has a coherent DEX
 header. Signatures and Android installation validity are not verified. The
-result is written to `<outdir>/final.apk`; every attempt and skip reason is
-written to `<outdir>/report.json`, together with the built-in profile metadata
-used for the run.
+result is written to `<outdir>/final.apk`. The command does not generate a
+report file; it reports only the final APK path or that no complete APK was
+found.
 
 Commands requiring sample-specific keys or offsets (`aes-gcm-hkdf`,
 `chunked-aes-gzip`, `xor-gzip`, and `midctr`) are reported as skipped rather
@@ -239,8 +242,8 @@ apkinspect profiles --json
 
 Each profile records its command module, trigger type, default asset or required
 assets, command template, and whether it is safe for keyless `blind` discovery.
-The same metadata is embedded in `blind-output/report.json` so a result can be
-audited without reading the implementation.
+The metadata is available directly from `profiles --json` for automation.
+Variant names are reported, but key and password values are never emitted.
 
 ### `lcg`
 

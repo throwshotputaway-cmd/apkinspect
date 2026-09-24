@@ -84,6 +84,9 @@ class CliTests(unittest.TestCase):
         names = {profile['name'] for profile in profiles}
         self.assertIn('fogky', names)
         self.assertIn('aes-gcm-hkdf', names)
+        fogky_profile = next(profile for profile in profiles if profile['name'] == 'fogky')
+        self.assertEqual(fogky_profile['variants'], ['default'])
+        self.assertNotIn(fogky.DEFAULT_KEY.hex(), stdout.getvalue())
 
     def test_missing_file_is_clean_error(self):
         stderr = io.StringIO()

@@ -15,7 +15,7 @@ from typing import Any, Deque, Dict, List, Optional, Sequence, Set, Tuple
 
 from . import axml, cloak, dpt, fogky, lcg, shard, signed, spk, staged, upd
 from .common import ToolError, read_file, write_file
-from .profiles import BUILTIN_PROFILES, profile_report
+from .profiles import AdapterProfile, BUILTIN_PROFILES, profile_by_name
 from .ui import UI
 
 MAX_INPUT_BYTES = 512 * 1024 * 1024
@@ -28,13 +28,9 @@ MAX_REPORTED_ERROR = 240
 _ATTEMPT_TOKEN = '__APKINSPECT_ATTEMPT_DIR__'
 
 KNOWN_VARIANTS = {
-    'upd': (('default', upd.DEFAULT_KEY.decode('ascii')),),
-    'staged': (('default', staged.DEFAULT_PASSWORD),),
-    'signed': (('default', signed.DEFAULT_XOR64.decode('ascii')),),
-    'spk': (('default', spk.DEFAULT_KEY.decode('ascii')),),
-    'fogky': (('default', fogky.DEFAULT_KEY.hex()),),
-    'shard': (('default', shard.DEFAULT_KEY.decode('ascii')),),
-    'cloak': (('hk+pk-default', ''),),
+    profile.name: profile.variants
+    for profile in BUILTIN_PROFILES
+    if profile.variants
 }
 
 
@@ -57,15 +53,6 @@ def _safe_error(error: Exception) -> str:
     message = re.sub(r'(?i)\b[0-9a-f]{24,}\b', '<redacted>', message)
     message = re.sub(r"assets/[^\s'\"]+", 'assets/<redacted>', message)
     return message[:MAX_REPORTED_ERROR] or type(error).__name__
-
-
-def _safe_asset(value: Optional[str]) -> Optional[str]:
-    if not value:
-        return None
-    if len(value) <= 80:
-        return value
-    digest = hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
-    return '%s...<sha256:%s>' % (value[:32], digest)
 
 
 def _safe_member_name(name: str) -> str:
@@ -247,27 +234,23 @@ def _invoke(module: Any, argv: Sequence[str]) -> Tuple[int, str]:
 
 class BlindRunner:
     def __init__(self, input_path: str, outdir: str, max_depth: int,
-                 max_attempts: int, max_assets: int):
+                 max_attempts: int, max_assets: int,
+                 requested_profiles: Optional[Sequence[str]] = None):
         self.input_path = os.path.abspath(input_path)
         self.outdir = os.path.abspath(outdir)
         self.max_depth = max_depth
         self.max_attempts = max_attempts
         self.max_assets = max_assets
+        self.requested_profiles = set(requested_profiles) if requested_profiles else None
         self.queue: Deque[Tuple[str, int]] = deque()
         self.queued: Set[str] = set()
         self.processed: Set[str] = set()
         self.attempted: Set[Tuple[str, str, str, str]] = set()
-        self.attempts: List[Dict[str, Any]] = []
         self.attempt_count = 0
         self.artifact_count = 0
         self.final_path: Optional[str] = None
         os.makedirs(os.path.join(self.outdir, 'attempts'), exist_ok=True)
         os.makedirs(os.path.join(self.outdir, 'artifacts'), exist_ok=True)
-
-    def _record(self, command: str, depth: int, status: str, **fields: Any) -> None:
-        entry: Dict[str, Any] = {'command': command, 'depth': depth, 'status': status}
-        entry.update(fields)
-        self.attempts.append(entry)
 
     def _queue(self, path: str, depth: int) -> bool:
         if not _regular_file(path) or os.path.getsize(path) > MAX_ENTRY_BYTES:
@@ -306,6 +289,9 @@ class BlindRunner:
         except (ToolError, UnicodeDecodeError, ValueError, TypeError):
             return False
 
+    def _profile_enabled(self, name: str) -> bool:
+        return self.requested_profiles is None or name in self.requested_profiles
+
     def _try(self, name: str, module: Any, depth: int, input_digest: str,
              asset: str, argv: List[str], variant: str = 'default') -> bool:
         marker = (name, input_digest, asset, variant)
@@ -323,24 +309,18 @@ class BlindRunner:
             if isinstance(argument, str) else argument
             for argument in argv
         ]
-        result, error = _invoke(module, scoped_argv)
+        result, _ = _invoke(module, scoped_argv)
         outputs: List[str] = []
         if result == 0:
             try:
                 outputs = _collect_files(attempt_dir)
-            except ToolError as collection_error:
+            except ToolError:
                 result = 1
-                error = _safe_error(collection_error)
-        self._record(name, depth, 'success' if result == 0 else 'failed',
-                     input_sha256=input_digest, asset=_safe_asset(asset),
-                     variant=variant,
-                     outputs=[os.path.relpath(path, self.outdir) for path in outputs],
-                     error=error or None)
         if result != 0:
             return False
         for output in outputs:
             if is_final_apk(output):
-                self._finish(output, depth)
+                self._finish(output)
                 return True
             if _regular_file(output) and zipfile.is_zipfile(output):
                 self._queue_nested(output, depth)
@@ -348,74 +328,91 @@ class BlindRunner:
                     self._queue(output, depth + 1)
         return False
 
-    def _try_variants(self, name: str, module: Any, depth: int,
+    def _try_variants(self, profile: AdapterProfile, module: Any, depth: int,
                       input_digest: str, asset: str, argv_builder: Any) -> bool:
-        for variant, value in KNOWN_VARIANTS.get(name, (('default', ''),)):
-            if self._try(name, module, depth, input_digest, asset,
+        for variant, value in profile.variants or (('default', ''),):
+            if self._try(profile.name, module, depth, input_digest, asset,
                          argv_builder(value), variant=variant):
                 return True
         return False
 
-    def _finish(self, source: str, depth: int) -> None:
+    def _finish(self, source: str) -> None:
         if self.final_path is not None:
             return
         target = os.path.join(self.outdir, 'final.apk')
         write_file(target, read_file(source, 'final APK'))
         self.final_path = target
-        self._record('blind', depth, 'final', output=target)
 
     def _try_adapters(self, path: str, depth: int, digest: str,
                       infos: Dict[str, zipfile.ZipInfo]) -> None:
         self._queue_nested(path, depth)
         names = set(infos)
-        if 'AndroidManifest.xml' in names and self._try(
-                'axml-trim', axml, depth, digest, '',
-                ['axml-trim', path, '-o', self._attempt_output('axml.apk')]):
+        if (self._profile_enabled('axml-trim')
+                and 'AndroidManifest.xml' in names
+                and self._try(
+                    'axml-trim', axml, depth, digest, '',
+                    ['axml-trim', path, '-o', self._attempt_output('axml.apk')])):
             return
-        if 'assets/update.enc' in names and self._try_variants(
-                'upd', upd, depth, digest, 'assets/update.enc',
-                lambda key: ['upd', path, '-o', self._attempt_output('upd.payload'),
-                             '--key', key]):
+        if (self._profile_enabled('upd')
+                and 'assets/update.enc' in names
+                and self._try_variants(
+                    profile_by_name('upd'), upd, depth, digest, 'assets/update.enc',
+                    lambda key: ['upd', path, '-o', self._attempt_output('upd.payload'),
+                                 '--key', key])):
             return
-        if 'assets/packed/meta.json' in names and self._staged_safe(path) and self._try_variants(
-                'staged', staged, depth, digest, 'assets/packed/meta.json',
-                lambda password: ['staged', path,
-                                  '-o', self._attempt_output('staged.payload'),
-                                  '--password', password]):
+        if (self._profile_enabled('staged')
+                and 'assets/packed/meta.json' in names
+                and self._staged_safe(path)
+                and self._try_variants(
+                    profile_by_name('staged'), staged, depth, digest,
+                    'assets/packed/meta.json',
+                    lambda password: ['staged', path,
+                                      '-o', self._attempt_output('staged.payload'),
+                                      '--password', password])):
             return
-        if {'assets/0uym5nunf4giud61', 'assets/bvxg8rspej6aqybh/u0w4uogp'} <= names and self._try_variants(
-                'signed', signed, depth, digest, 'signed-family',
-                lambda key: ['signed', path, '--outdir', self._attempt_output('signed'),
-                             '--xor-key', key]):
+        if (self._profile_enabled('signed')
+                and {'assets/0uym5nunf4giud61',
+                     'assets/bvxg8rspej6aqybh/u0w4uogp'} <= names
+                and self._try_variants(
+                    profile_by_name('signed'), signed, depth, digest, 'signed-family',
+                    lambda key: ['signed', path, '--outdir',
+                                 self._attempt_output('signed'), '--xor-key', key])):
             return
-        if 'assets/nvcgehin' in names and self._try_variants(
-                'cloak', cloak, depth, digest, 'assets/nvcgehin',
-                lambda key: ['cloak', path, '-o', self._attempt_output('cloak.payload')]):
+        if (self._profile_enabled('cloak')
+                and 'assets/nvcgehin' in names
+                and self._try_variants(
+                    profile_by_name('cloak'), cloak, depth, digest, 'assets/nvcgehin',
+                    lambda key: ['cloak', path, '-o',
+                                 self._attempt_output('cloak.payload')])):
             return
         binary_assets = sorted(
             (name for name in names if name.startswith('assets/') and name.endswith('.bin')),
             key=lambda name: (-infos[name].file_size, name))
-        if binary_assets and self._try_variants(
-                'spk', spk, depth, digest, binary_assets[0],
-                lambda key: ['spk', path, '-o', self._attempt_output('spk.body'),
-                             '--asset', binary_assets[0], '--key', key]):
+        if (self._profile_enabled('spk')
+                and binary_assets
+                and self._try_variants(
+                    profile_by_name('spk'), spk, depth, digest, binary_assets[0],
+                    lambda key: ['spk', path, '-o', self._attempt_output('spk.body'),
+                                 '--asset', binary_assets[0], '--key', key])):
             return
         for asset in _candidate_assets(infos, self.max_assets):
-            if self._try_variants(
-                    'fogky', fogky, depth, digest, asset,
-                    lambda key, asset=asset: [
-                        'fogky', path, asset,
-                        '-o', self._attempt_output('fogky-%d' % len(asset)),
-                        '--key', key]):
+            if (self._profile_enabled('fogky')
+                    and self._try_variants(
+                        profile_by_name('fogky'), fogky, depth, digest, asset,
+                        lambda key, asset=asset: [
+                            'fogky', path, asset,
+                            '-o', self._attempt_output('fogky-%d' % len(asset)),
+                            '--key', key])):
                 return
-            if self._try_variants(
-                    'shard', shard, depth, digest, asset,
-                    lambda key, asset=asset: [
-                        'shard', path, asset,
-                        '-o', self._attempt_output('shard-%d' % len(asset)),
-                        '--key', key]):
+            if (self._profile_enabled('shard')
+                    and self._try_variants(
+                        profile_by_name('shard'), shard, depth, digest, asset,
+                        lambda key, asset=asset: [
+                            'shard', path, asset,
+                            '-o', self._attempt_output('shard-%d' % len(asset)),
+                            '--key', key])):
                 return
-            if asset.lower().endswith('.dat'):
+            if self._profile_enabled('lcg') and asset.lower().endswith('.dat'):
                 try:
                     data = _read_member(path, asset)
                 except ToolError:
@@ -437,7 +434,8 @@ class BlindRunner:
                             os.unlink(lcg_input)
                         except OSError:
                             pass
-        if 'assets/OoooooOooo' in names:
+        if (self._profile_enabled('dpt')
+                and 'assets/OoooooOooo' in names):
             self._try('dpt', dpt, depth, digest, 'assets/OoooooOooo',
                       ['dpt', path, '-o', self._attempt_output('dpt')])
 
@@ -446,18 +444,13 @@ class BlindRunner:
             raise ToolError('input APK is not a regular file')
         if os.path.getsize(self.input_path) > MAX_INPUT_BYTES:
             raise ToolError('input APK exceeds the size limit')
-        self._record('blind', 0, 'started', input=self.input_path)
-        for profile in BUILTIN_PROFILES:
-            if not profile.blind_compatible:
-                self._record(profile.name, 0, 'skipped', reason=profile.description)
         if is_final_apk(self.input_path):
-            self._finish(self.input_path, 0)
+            self._finish(self.input_path)
         else:
             self._queue(self.input_path, 0)
             while self.queue and self.final_path is None:
                 path, depth = self.queue.popleft()
                 if depth > self.max_depth:
-                    self._record('blind', depth, 'limit', reason='maximum depth reached')
                     continue
                 digest = _file_digest(path)
                 if digest in self.processed:
@@ -465,39 +458,16 @@ class BlindRunner:
                 self.processed.add(digest)
                 try:
                     infos = _archive_info(path)
-                except ToolError as error:
-                    self._record('input', depth, 'invalid', input_sha256=digest,
-                                 error=_safe_error(error))
+                except ToolError:
                     continue
                 self._try_adapters(path, depth, digest, infos)
                 if self.attempt_count >= self.max_attempts and self.queue:
-                    self._record('blind', depth, 'limit', reason='maximum attempts reached')
                     self.queue.clear()
-        self._write_report()
         if self.final_path is None:
             print('blind: no structurally complete APK found')
-            print('blind: report %s' % os.path.join(self.outdir, 'report.json'))
             return 1
         print('blind: final APK %s' % self.final_path)
-        print('blind: report %s' % os.path.join(self.outdir, 'report.json'))
         return 0
-
-    def _write_report(self) -> None:
-        report = {
-            'input': self.input_path,
-            'final': self.final_path,
-            'profiles': profile_report(),
-            'limits': {
-                'max_depth': self.max_depth,
-                'max_attempts': self.max_attempts,
-                'max_assets': self.max_assets,
-            },
-            'attempts': self.attempts,
-        }
-        path = os.path.join(self.outdir, 'report.json')
-        with open(path, 'w', encoding='utf-8') as stream:
-            json.dump(report, stream, indent=2, sort_keys=True)
-            stream.write('\n')
 
 
 def register(sub):
@@ -507,17 +477,23 @@ def register(sub):
     )
     parser.add_argument('apk', help='input APK or carrier ZIP')
     parser.add_argument('-o', '--outdir', default='blind-output',
-                        help='directory for final.apk, artifacts, and report.json')
+                        help='directory for final.apk and artifacts')
     parser.add_argument('--max-depth', type=_nonnegative, default=4,
                         help='maximum recursive payload depth (default: 4)')
     parser.add_argument('--max-attempts', type=_positive, default=64,
                         help='maximum command attempts (default: 64)')
     parser.add_argument('--max-assets', type=_nonnegative, default=16,
                         help='maximum ranked assets per decryptor (default: 16)')
+    profile_choices = tuple(profile.name for profile in BUILTIN_PROFILES
+                            if profile.blind_compatible)
+    parser.add_argument('--profile', action='append', choices=profile_choices,
+                        dest='profiles',
+                        help='limit blind discovery to a profile; repeat for multiple profiles')
     parser.set_defaults(func=run)
 
 
 def run(args) -> int:
     runner = BlindRunner(args.apk, args.outdir, args.max_depth,
-                         args.max_attempts, args.max_assets)
+                         args.max_attempts, args.max_assets,
+                         getattr(args, 'profiles', None))
     return runner.run()
