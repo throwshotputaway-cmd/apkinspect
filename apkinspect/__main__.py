@@ -7,10 +7,10 @@ import time
 from . import __version__
 from .common import ToolError
 from .ui import UI
-from . import axml, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr
+from . import axml, blind, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr
 from . import oracle, shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip
 
-MODULES = (axml, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr, oracle,
+MODULES = (axml, blind, cloak, dpt, elforacle, fogky, kfqoq, lcg, midctr, oracle,
            shard, signed, spk, splitkey, staged, upd, vbfk, xor_gzip)
 
 
@@ -24,6 +24,15 @@ def add_ui_options(parser, suppress: bool = False) -> None:
     parser.add_argument('--progress', choices=('auto', 'always', 'never'),
                         default=progress_default,
                         help='progress display mode')
+
+
+def normalize_argv(argv=None):
+    values = list(sys.argv[1:] if argv is None else argv)
+    for index, value in enumerate(values):
+        if value == '--blind':
+            values[index] = 'blind'
+            break
+    return values
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(normalize_argv(argv))
     if not getattr(args, 'command', None):
         parser.print_help()
         return 2

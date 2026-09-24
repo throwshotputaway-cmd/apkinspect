@@ -164,6 +164,7 @@ entry integrity; it does not validate an Android manifest or APK signatures.
 
 | Command | Purpose |
 |---|---|
+| `blind` | Try compatible static unpackers and follow payloads to a final APK |
 | `lcg` | Decrypt an LCG stream-cipher `.dat` blob |
 | `upd` | Decrypt an `update.enc` repeating-XOR carrier |
 | `shard` | Decrypt a repeating-XOR staged asset |
@@ -183,6 +184,43 @@ entry integrity; it does not validate an Android manifest or APK signatures.
 | `axml-trim` | Rebuild an APK with a trimmed binary manifest |
 
 ## Command reference
+
+### `blind`
+
+Runs a bounded, static discovery pipeline over an APK. It tries compatible
+keyless family transforms, follows valid ZIP/APK artifacts recursively, and
+stops when it finds a structurally complete APK. It never runs, installs, or
+emulates the sample.
+
+```text
+apkinspect blind APK -o blind-output [options]
+apkinspect --blind APK -o blind-output
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `APK` | required | Input APK or carrier ZIP |
+| `-o, --outdir` | `blind-output` | Directory for `final.apk`, artifacts, and `report.json` |
+| `--max-depth` | `4` | Maximum recursive payload depth |
+| `--max-attempts` | `64` | Maximum command attempts |
+| `--max-assets` | `16` | Maximum ranked assets tried per decryptor |
+
+The pipeline first checks whether the input is already complete. It then tries
+manifest repair and keyless family adapters such as `upd`, `staged`, `signed`,
+`cloak`, `spk`, `fogky`, `shard`, `lcg`, and `dpt` when their expected assets
+exist. Successful ZIP outputs and nested `.apk` members are queued for further
+analysis, with digest-based cycle detection and the configured limits.
+
+A result is accepted as final only when the ZIP passes integrity checks, the
+root binary `AndroidManifest.xml` parses, and `classes.dex` has a coherent DEX
+header. Signatures and Android installation validity are not verified. The
+result is written to `<outdir>/final.apk`; every attempt and skip reason is
+written to `<outdir>/report.json`.
+
+Commands requiring sample-specific keys or offsets (`aes-gcm-hkdf`,
+`chunked-aes-gzip`, `xor-gzip`, and `midctr`) are reported as skipped rather
+than brute-forced. `blind` returns `0` when it finds a final APK and `1` when
+the bounded search finds none.
 
 ### `lcg`
 
