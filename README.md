@@ -7,8 +7,8 @@ signing.
 
 The project is usable in two ways:
 
-- `npm install -g github:throwshotputaway-cmd/apkinspect` for a direct
-  repository installation that exposes the `apkinspect` command.
+- `npm install -g https://github.com/throwshotputaway-cmd/apkinspect.git` for
+  a direct repository installation that exposes the `apkinspect` command.
 - `python -m pip install .` when Python packaging is preferred.
 
 Both paths install the complete runtime command set. There are no optional
@@ -31,13 +31,14 @@ Python interpreter, so Python must already be installed and discoverable.
 Install directly from the repository:
 
 ```bash
-npm install --global github:throwshotputaway-cmd/apkinspect
+npm install --global https://github.com/throwshotputaway-cmd/apkinspect.git
 apkinspect --help
 apkinspect --version
 ```
 
 This installs the repository directly and exposes the same command as a local
-checkout installation.
+checkout installation. Use the full `apkinspect` repository name and the HTTPS
+URL above; npm's `github:` shorthand may attempt SSH and require a GitHub key.
 
 From a checkout of this repository, the equivalent local installation is:
 
