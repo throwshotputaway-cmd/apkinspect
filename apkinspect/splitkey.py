@@ -27,9 +27,16 @@ def run(args) -> int:
     if args.size < 1:
         raise ToolError('size must be positive')
     try:
-        text = read_file(args.dump, 'dexdump file').decode('utf-8', errors='ignore')
+        raw = read_file(args.dump, 'dexdump file')
     except UnicodeDecodeError:
         raise ToolError('dexdump file is not valid UTF-8')
+    # dexdump.exe on Windows writes UTF-16LE (BOM + ~50% NUL bytes)
+    if raw.startswith(b'\xff\xfe') or raw.count(b'\x00') > len(raw) // 4:
+        text = raw.decode('utf-16', errors='ignore')
+    else:
+        text = raw.decode('utf-8', errors='ignore')
+    # dexdump wraps 'Class descriptor  : ' and its value across lines
+    text = re.sub(r'Class descriptor\s*:\s*\n', 'Class descriptor  : ', text)
     lines = text.splitlines()
     try:
         start = next(i for i, line in enumerate(lines)
